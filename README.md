@@ -36,7 +36,7 @@ FLUXER_TOKEN_URL=https://api.fluxer.app/v1/oauth2/token
 FLUXER_API_BASE_URL=https://api.fluxer.app/v1
 FLUXER_USER_ENDPOINT=https://api.fluxer.app/v1/oauth2/userinfo
 SESSION_SECRET=your_secure_random_secret
-OAUTH_REDIRECT_URI=http://127.0.0.1:8000/auth
+OAUTH_REDIRECT_URI=http://localhost:8000/auth
 FRONTEND_URL=http://localhost:3000
 ENVIRONMENT=development
 # Optional overrides:

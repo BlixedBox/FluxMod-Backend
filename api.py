@@ -10,5 +10,5 @@ logger = get_logger("api")
 if __name__ == '__main__':
     # Local development server; production should use gunicorn.
     logger.info("Starting Flask development server")
-    app.run(debug=False, port=8000)
+    app.run(debug=False, host="localhost", port=8000)
     

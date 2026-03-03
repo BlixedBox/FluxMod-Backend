@@ -8,7 +8,7 @@ from flask import Blueprint, jsonify, redirect, request, session
 from api2.debug import debug_kv, get_logger
 from api2.extensions import oauth
 from api2.services.auth_helpers import require_user
-from api2.globals import FRONTEND_URL, FLUXER_SCOPE, OAUTH_PROVIDER, OAUTH_REDIRECT_URI
+from api2.globals import FRONTEND_URL, FLUXER_SCOPE, IS_PRODUCTION, OAUTH_PROVIDER, OAUTH_REDIRECT_URI
 
 
 auth_bp = Blueprint("auth", __name__)
@@ -46,9 +46,14 @@ def auth_callback():
             logger.warning("OAuth callback missing authorization code")
             return jsonify({"detail": "Missing authorization code"}), 400
 
+        token_url = os.getenv("FLUXER_TOKEN_URL")
+        if not token_url:
+            logger.error("FLUXER_TOKEN_URL missing in environment")
+            return jsonify({"detail": "FLUXER_TOKEN_URL not configured"}), 500
+
         with httpx.Client() as http_client:
             token_response = http_client.post(
-                os.getenv("FLUXER_TOKEN_URL"),
+                token_url,
                 data={
                     "grant_type": "authorization_code",
                     "code": code,
@@ -91,7 +96,8 @@ def auth_callback():
         frontend_url=FRONTEND_URL,
     )
 
-    return redirect(FRONTEND_URL, code=302)
+    redirect_target = FRONTEND_URL if IS_PRODUCTION else "http://localhost:3000"
+    return redirect(redirect_target, code=302)
 
 
 @auth_bp.get("/logout")

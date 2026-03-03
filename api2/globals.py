@@ -12,17 +12,31 @@ DATA_FILE = ROOT / "data.json"
 # Load .env from the backend directory
 load_dotenv(dotenv_path=str(ROOT / ".env"))
 
-
-# OAuth / session configuration
-SESSION_SECRET = os.getenv("SESSION_SECRET") or "melobytesarebestbytes"
-OAUTH_REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI") or "http://127.0.0.1:8000/auth"
-IS_PRODUCTION = os.getenv("ENVIRONMENT") == "production"
-SESSION_SAME_SITE: Literal["lax", "strict", "none"] = os.getenv("SESSION_SAME_SITE", "none" if IS_PRODUCTION else "lax").lower() # type: ignore
-SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", str(IS_PRODUCTION)).lower() == "true"
-FRONTEND_URL = os.getenv("FRONTEND_URL") or "http://localhost:3000"
-OAUTH_PROVIDER = os.getenv("OAUTH_PROVIDER", "fluxer").lower()
-FLUXER_SCOPE = os.getenv("FLUXER_SCOPE", "identify guilds")
 logger = get_logger("globals")
+ENVIRONMENT = (os.getenv("ENVIRONMENT") or "development").strip().lower()
+
+if ENVIRONMENT not in {"production", "development"}:
+    raise ValueError(f"Invalid ENVIRONMENT value: {ENVIRONMENT}. Must be 'production' or 'development'.")
+
+IS_PRODUCTION = ENVIRONMENT == "production"
+logger.info("Running in %s mode", ENVIRONMENT)
+
+if IS_PRODUCTION:
+    SESSION_SECRET = os.getenv("SESSION_SECRET") or "melobytesarebestbytes"
+    OAUTH_REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI") or "https://api.example.com/auth"
+    SESSION_SAME_SITE="lax"
+    SESSION_HTTPS_ONLY = os.getenv("SESSION_HTTPS_ONLY", "true").lower() == "true"
+    FRONTEND_URL = os.getenv("FRONTEND_URL") or "https://fluxmod-frontend.onrender.com"
+    OAUTH_PROVIDER = os.getenv("OAUTH_PROVIDER", "fluxer").lower()
+    FLUXER_SCOPE = os.getenv("FLUXER_SCOPE", "identify guilds")
+else:
+    SESSION_SECRET = os.getenv("SESSION_SECRET") or "melobytesarebestbytes"
+    OAUTH_REDIRECT_URI = "http://localhost:8000/auth"
+    SESSION_SAME_SITE="lax"
+    SESSION_HTTPS_ONLY = False
+    FRONTEND_URL = "http://localhost:3000"
+    OAUTH_PROVIDER = os.getenv("OAUTH_PROVIDER", "fluxer").lower()
+    FLUXER_SCOPE = os.getenv("FLUXER_SCOPE", "identify guilds")
 
 def build_allowed_origins() -> list[str]:
     defaults = {
