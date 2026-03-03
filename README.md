@@ -84,7 +84,7 @@ This repository includes a Render blueprint at `render.yaml` (repo root).
 
 - Root Directory: leave empty (repo root)
 - Build Command: `pip install -r requirements.txt`
-- Start Command: `gunicorn api:app --bind 0.0.0.0:$PORT`
+- Start Command: `gunicorn "api2:create_app()" --bind 0.0.0.0:$PORT`
 
 Required environment values:
 
@@ -110,6 +110,8 @@ MONGODB_DOCUMENT_ID=singleton
 ```
 
 After deploy, update your Fluxer OAuth app callback URL to match `OAUTH_REDIRECT_URI`.
+
+Python version for Render is pinned via `runtime.txt` (`python-3.12.10`).
 
 ## Data Storage
 
@@ -138,7 +140,7 @@ MONGODB_DOCUMENT_ID=singleton
 
 ```bash
 pip install gunicorn
-gunicorn -w 4 -b 0.0.0.0:8000 api:app
+gunicorn -w 4 -b 0.0.0.0:8000 "api2:create_app()"
 ```
 
 Nginx config example:
@@ -170,7 +172,7 @@ Type=simple
 User=automod
 WorkingDirectory=/home/automod/FluxMod-Backend
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=/home/automod/FluxMod-Backend/.venv/bin/gunicorn -w 4 -b 0.0.0.0:8000 api:app
+ExecStart=/home/automod/FluxMod-Backend/.venv/bin/gunicorn -w 4 -b 0.0.0.0:8000 "api2:create_app()"
 Restart=on-failure
 RestartSec=10
 

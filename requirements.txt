@@ -11,3 +11,4 @@ colorama
 fluxer.py
 requests
 pymongo[srv]
+certifi
