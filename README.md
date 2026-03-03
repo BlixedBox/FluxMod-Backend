@@ -82,7 +82,7 @@ This repository includes a Render blueprint at `render.yaml` (repo root).
 
 ### Option B: Manual web service
 
-- Root Directory: `backend`
+- Root Directory: leave empty (repo root)
 - Build Command: `pip install -r requirements.txt`
 - Start Command: `gunicorn api:app --bind 0.0.0.0:$PORT`
 
@@ -103,6 +103,10 @@ SESSION_HTTPS_ONLY=true
 OAUTH_REDIRECT_URI=https://<your-render-service>.onrender.com/auth
 FRONTEND_URL=https://fluxmod-frontend.onrender.com/
 ALLOWED_ORIGINS=https://fluxmod-frontend.onrender.com/
+MONGODB_URI=<your-mongodb-connection-string>
+MONGODB_DB_NAME=fluxmod
+MONGODB_COLLECTION_NAME=app_data
+MONGODB_DOCUMENT_ID=singleton
 ```
 
 After deploy, update your Fluxer OAuth app callback URL to match `OAUTH_REDIRECT_URI`.
@@ -127,7 +131,7 @@ MONGODB_DOCUMENT_ID=singleton
 
 ## Deployment (Ubuntu)
 
-1. Clone repo, navigate to `backend/` directory
+1. Clone repo, navigate to project root directory
 2. Create venv and install deps
 3. Configure `.env` with Fluxer credentials
 4. Run with gunicorn + nginx:
@@ -164,9 +168,9 @@ After=network.target
 [Service]
 Type=simple
 User=automod
-WorkingDirectory=/home/automod/AutoMod/backend
+WorkingDirectory=/home/automod/FluxMod-Backend
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=/home/automod/AutoMod/backend/.venv/bin/gunicorn -w 4 -b 0.0.0.0:8000 api:app
+ExecStart=/home/automod/FluxMod-Backend/.venv/bin/gunicorn -w 4 -b 0.0.0.0:8000 api:app
 Restart=on-failure
 RestartSec=10
 
