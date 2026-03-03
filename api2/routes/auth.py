@@ -1,121 +1,149 @@
 from __future__ import annotations
 
 import os
-
 import httpx
 from flask import Blueprint, jsonify, redirect, request, session
 
-from api2.debug import debug_kv, get_logger
 from api2.extensions import oauth
 from api2.services.auth_helpers import require_user
-from api2.globals import FRONTEND_URL, FLUXER_SCOPE, IS_PRODUCTION, OAUTH_PROVIDER, OAUTH_REDIRECT_URI
-
+from api2.globals import (
+    FRONTEND_URL,
+    FLUXER_SCOPE,
+    IS_PRODUCTION,
+    OAUTH_PROVIDER,
+    OAUTH_REDIRECT_URI,
+)
 
 auth_bp = Blueprint("auth", __name__)
-logger = get_logger("routes.auth")
+
+
+def _build_profile_endpoints() -> list[str]:
+    configured = os.getenv("FLUXER_USER_ENDPOINT")
+    candidates = [
+        configured,
+        "https://api.fluxer.app/v1/oauth2/userinfo",
+        "https://api.fluxer.app/v1/users/@me",
+    ]
+
+    endpoints: list[str] = []
+    for endpoint in candidates:
+        if endpoint and endpoint not in endpoints:
+            endpoints.append(endpoint)
+    return endpoints
 
 
 @auth_bp.get("/login")
 def login():
-    """Start OAuth login by redirecting the user to the provider."""
-    debug_kv(logger, "Login endpoint invoked", provider=OAUTH_PROVIDER)
+    """
+    Redirect user to Fluxer's OAuth2 authorize URL.
+    """
+    print(f"[DEBUG] Login endpoint invoked, provider={OAUTH_PROVIDER}")
+
     client = oauth.create_client(OAUTH_PROVIDER)
     if client is None:
-        logger.error("OAuth client is not configured", extra={"provider": OAUTH_PROVIDER})
-        return jsonify({"detail": f"OAuth provider '{OAUTH_PROVIDER}' is not configured"}), 500
+        print(f"[ERROR] OAuth client not configured for provider {OAUTH_PROVIDER}")
+        return jsonify({"detail": f"OAuth provider '{OAUTH_PROVIDER}' not configured"}), 500
 
-    return client.authorize_redirect(OAUTH_REDIRECT_URI, scope=FLUXER_SCOPE)
+    return client.authorize_redirect(
+        redirect_uri=OAUTH_REDIRECT_URI,
+        scope=FLUXER_SCOPE,
+    )
 
 
 @auth_bp.get("/auth")
 def auth_callback():
-    """Handle OAuth callback, fetch profile, and save user in session."""
-    debug_kv(logger, "OAuth callback received", provider=OAUTH_PROVIDER)
+    """
+    OAuth callback: exchange code for token, fetch profile + guilds, store in session.
+    """
+    print(f"[DEBUG] OAuth callback received, provider={OAUTH_PROVIDER}")
+
     client = oauth.create_client(OAUTH_PROVIDER)
     if client is None:
-        logger.error("OAuth client is not configured", extra={"provider": OAUTH_PROVIDER})
-        return jsonify({"detail": f"OAuth provider '{OAUTH_PROVIDER}' is not configured"}), 500
+        print(f"[ERROR] OAuth client not configured for provider {OAUTH_PROVIDER}")
+        return jsonify({"detail": f"OAuth provider '{OAUTH_PROVIDER}' not configured"}), 500
 
+    # Exchange authorization code for access token
     try:
         token = client.authorize_access_token()
-    except Exception:
-        logger.warning("Primary token exchange failed; trying manual token exchange")
-        # Fallback: manually exchange authorization code for token.
-        code = request.args.get("code")
-        if not code:
-            logger.warning("OAuth callback missing authorization code")
-            return jsonify({"detail": "Missing authorization code"}), 400
+        access_token = token.get("access_token")
+        if not access_token:
+            raise ValueError("No access_token received from provider")
+    except Exception as e:
+        print(f"[ERROR] Token exchange failed: {e}")
+        return jsonify({"detail": "Token exchange failed"}), 500
 
-        token_url = os.getenv("FLUXER_TOKEN_URL")
-        if not token_url:
-            logger.error("FLUXER_TOKEN_URL missing in environment")
-            return jsonify({"detail": "FLUXER_TOKEN_URL not configured"}), 500
-
-        with httpx.Client() as http_client:
-            token_response = http_client.post(
-                token_url,
-                data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": OAUTH_REDIRECT_URI,
-                    "client_id": os.getenv("FLUXER_CLIENT_ID"),
-                    "client_secret": os.getenv("FLUXER_CLIENT_SECRET"),
-                },
+    # Fetch user profile with endpoint fallback for transient provider errors.
+    profile = None
+    last_error: Exception | None = None
+    for profile_url in _build_profile_endpoints():
+        try:
+            resp = httpx.get(
+                profile_url,
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10.0,
             )
-            if token_response.status_code != 200:
-                logger.error("Manual token exchange failed", extra={"status": token_response.status_code})
-                return jsonify({"detail": f"Token exchange failed: {token_response.text}"}), 500
-            token = token_response.json()
 
-    if OAUTH_PROVIDER == "fluxer":
-        user_endpoint = os.getenv("FLUXER_USER_ENDPOINT")
-        if not user_endpoint:
-            logger.error("FLUXER_USER_ENDPOINT missing in environment")
-            return jsonify({"detail": "FLUXER_USER_ENDPOINT not configured"}), 500
+            # Retry on another endpoint only for provider/server errors.
+            if resp.status_code >= 500:
+                last_error = RuntimeError(f"{resp.status_code} from {profile_url}")
+                continue
 
-        resp = client.get(user_endpoint, token=token)
-        profile = resp.json()
-        session["user"] = {
-            "id": profile.get("sub") or profile.get("id"),
-            "username": profile.get("name") or profile.get("preferred_username"),
-        }
-    else:
-        resp = client.get("/users/@me", token=token)
-        profile = resp.json()
-        session["user"] = {
-            "id": profile.get("id"),
-            "username": profile.get("username"),
-            "discriminator": profile.get("discriminator"),
-        }
+            resp.raise_for_status()
+            profile = resp.json()
+            break
+        except Exception as e:
+            last_error = e
 
-    debug_kv(
-        logger,
-        "OAuth session established",
-        user_id=session.get("user", {}).get("id"),
-        username=session.get("user", {}).get("username"),
-        frontend_url=FRONTEND_URL,
-    )
+    if profile is None:
+        print(f"[ERROR] Failed to fetch user profile: {last_error}")
+        return jsonify({"detail": "Failed to fetch profile"}), 500
 
+    # Fetch guilds
+    try:
+        guilds_resp = httpx.get(
+            "https://api.fluxer.app/v1/users/@me/guilds",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10.0,
+        )
+        guilds_resp.raise_for_status()
+        guilds = guilds_resp.json()
+    except Exception as e:
+        print(f"[WARNING] Failed to fetch user guilds: {e}")
+        guilds = []
+
+    # Populate session with user info
+    session["user"] = {
+        "id": profile.get("id"),
+        "username": profile.get("username") 
+                    or profile.get("preferred_username") 
+                    or profile.get("name"),
+        "discriminator": profile.get("discriminator"),
+        "avatar_url": profile.get("avatar_url") or profile.get("avatar"),
+        "guilds": guilds,
+    }
+
+    print(f"[DEBUG] OAuth session established for user {session['user']['username']} ({session['user']['id']})")
     redirect_target = FRONTEND_URL if IS_PRODUCTION else "http://localhost:3000"
-    return redirect(redirect_target, code=302)
+    return redirect(redirect_target)
 
 
 @auth_bp.get("/logout")
 def logout():
-    """Clear user session and log out."""
-    debug_kv(logger, "Logout endpoint invoked", had_user=bool(session.get("user")))
+    """
+    Clear user session.
+    """
+    had_user = bool(session.get("user"))
     session.pop("user", None)
+    print(f"[DEBUG] Logout endpoint invoked, had_user={had_user}")
     return jsonify({"detail": "logged out"})
 
 
 @auth_bp.get("/api/me")
 @require_user
 def get_me():
-    """Return the current authenticated user stored in session."""
+    """
+    Return the authenticated user from the session.
+    """
     user = session.get("user")
-    debug_kv(
-        logger,
-        "Session user fetched",
-        user_id=user.get("id") if isinstance(user, dict) else None,
-    )
+    # print(f"[DEBUG] /api/me fetched user: {user}")
     return jsonify(user)
