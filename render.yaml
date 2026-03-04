@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: uv sync --locked --no-dev
-    startCommand: uv rungunicorn "api2:create_app()" --bind 0.0.0.0:$PORT
+    startCommand: uv run gunicorn "api2:create_app()" --bind 0.0.0.0:$PORT
     healthCheckPath: /healthz
     envVars:
       - key: OAUTH_PROVIDER
