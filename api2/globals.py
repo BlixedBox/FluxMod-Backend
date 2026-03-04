@@ -1,6 +1,5 @@
 import os
 import pathlib
-from typing import Literal
 from dotenv import load_dotenv
 
 from api2.debug import debug_kv, get_logger

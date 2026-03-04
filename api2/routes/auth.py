@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import httpx
-from flask import Blueprint, jsonify, redirect, request, session
+from flask import Blueprint, jsonify, redirect, session
 
 from api2.extensions import oauth
 from api2.services.auth_helpers import require_user
