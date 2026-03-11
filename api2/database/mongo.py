@@ -15,7 +15,11 @@ _client: Optional[MongoClient] = None
 
 
 def build_uri() -> str:
-    return os.getenv("MONGODB_URI") or os.getenv("MONGO_URI")
+    uri = os.getenv("MONGODB_URI") or os.getenv("MONGO_URI")
+    if not uri:
+        raise ValueError("MONGODB_URI or MONGO_URI must be set")
+
+    return uri
 
 
 def _env_bool(name: str, default: bool = False) -> bool:

@@ -5,6 +5,7 @@ Flask-based REST API for AutoMod rule management with Fluxer OAuth authenticatio
 ## Endpoints
 
 - `GET /api/me` — get current user
+- `GET /api/guild-count` — get global guild count
 - `GET /api/guilds` — list guilds (authenticated)
 - `GET /api/guilds/{guild_id}/rules` — list rules for guild (authenticated)
 - `POST /api/guilds/{guild_id}/rules` — create rule (authenticated)

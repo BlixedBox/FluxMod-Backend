@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify
 
 from api2.debug import debug_kv, get_logger
+from api2.database.bot_stats import get_global_guild_count
 
 
 core_bp = Blueprint("core", __name__)
@@ -28,3 +29,11 @@ def healthz():
             "uptime_percent": uptime_percent,
         }
     )
+
+
+@core_bp.get("/api/guild-count")
+def guild_count():
+    """Return the bot's global guild count."""
+    count = get_global_guild_count()
+    debug_kv(logger, "Guild count endpoint called", guild_count=count)
+    return jsonify({"guild_count": count})
