@@ -17,6 +17,34 @@ from api2.globals import (
 auth_bp = Blueprint("auth", __name__)
 
 
+def _sanitize_guild(guild: dict) -> dict:
+    """Keep only fields used by the frontend to avoid unnecessary payload bloat."""
+    return {
+        "id": guild.get("id"),
+        "name": guild.get("name"),
+        "icon": guild.get("icon"),
+        "owner_id": guild.get("owner_id") or guild.get("ownerId"),
+        "permissions": guild.get("permissions") or guild.get("permissions_new"),
+    }
+
+
+def _fetch_user_guilds(access_token: str) -> list[dict]:
+    try:
+        guilds_resp = httpx.get(
+            "https://api.fluxer.app/v1/users/@me/guilds",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10.0,
+        )
+        guilds_resp.raise_for_status()
+        payload = guilds_resp.json()
+        if not isinstance(payload, list):
+            return []
+        return [_sanitize_guild(guild) for guild in payload if isinstance(guild, dict)]
+    except Exception as e:
+        print(f"[WARNING] Failed to fetch user guilds: {e}")
+        return []
+
+
 def _build_profile_endpoints() -> list[str]:
     configured = os.getenv("FLUXER_USER_ENDPOINT")
     candidates = [
@@ -102,20 +130,8 @@ def auth_callback():
         print(f"[ERROR] Failed to fetch user profile: {last_error}")
         return jsonify({"detail": "Failed to fetch profile"}), 500
 
-    # Fetch guilds
-    try:
-        guilds_resp = httpx.get(
-            "https://api.fluxer.app/v1/users/@me/guilds",
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=10.0,
-        )
-        guilds_resp.raise_for_status()
-        guilds = guilds_resp.json()
-    except Exception as e:
-        print(f"[WARNING] Failed to fetch user guilds: {e}")
-        guilds = []
-
-    # Populate session with user info
+    # Populate session with minimal user info only.
+    # Storing full guild lists in cookie-backed sessions can exceed browser limits.
     session["user"] = {
         "id": profile.get("id"),
         "username": profile.get("username")
@@ -123,8 +139,8 @@ def auth_callback():
         or profile.get("name"),
         "discriminator": profile.get("discriminator"),
         "avatar_url": profile.get("avatar_url") or profile.get("avatar"),
-        "guilds": guilds,
     }
+    session["access_token"] = access_token
     session.permanent = True
 
     print(
@@ -141,6 +157,7 @@ def logout():
     """
     had_user = bool(session.get("user"))
     session.pop("user", None)
+    session.pop("access_token", None)
     print(f"[DEBUG] Logout endpoint invoked, had_user={had_user}")
     return jsonify({"detail": "logged out"})
 
@@ -151,6 +168,12 @@ def get_me():
     """
     Return the authenticated user from the session.
     """
-    user = session.get("user")
-    # print(f"[DEBUG] /api/me fetched user: {user}")
+    user = dict(session.get("user") or {})
+    access_token = session.get("access_token")
+
+    if isinstance(access_token, str) and access_token.strip():
+        user["guilds"] = _fetch_user_guilds(access_token)
+    else:
+        user["guilds"] = []
+
     return jsonify(user)
