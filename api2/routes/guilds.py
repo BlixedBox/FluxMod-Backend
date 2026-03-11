@@ -2,6 +2,12 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, request
 
+from api2.database.guilds import (
+    create_guild,
+    get_command_settings,
+    get_guild,
+    update_command_settings,
+)
 from api2.debug import debug_kv, get_logger
 from api2.services.auth_helpers import require_user
 from api2.services.validators import ValidationError, parse_rule_payload
@@ -13,6 +19,23 @@ logger = get_logger("routes.guilds")
 data_wrapper = DataWrapper()
 
 
+def _parse_guild_id_query_param() -> tuple[
+    str | None, int | None, tuple[dict, int] | None
+]:
+    guild_id = (request.args.get("guild_id") or "").strip()
+    if not guild_id:
+        return None, None, ({"detail": "guild_id query parameter is required"}, 400)
+    if not guild_id.isdigit():
+        return None, None, ({"detail": "guild_id must be a numeric string"}, 400)
+
+    return guild_id, int(guild_id), None
+
+
+def _ensure_guild_exists(guild_id: int) -> None:
+    if not get_guild(guild_id):
+        create_guild(guild_id)
+
+
 @guilds_bp.get("/api/guilds")
 @require_user
 def list_guilds():
@@ -22,6 +45,95 @@ def list_guilds():
     debug_kv(logger, "Guild list generated", guild_count=len(guilds))
 
     return jsonify(guilds)
+
+
+@guilds_bp.route("/api/guilds/settings", methods=["GET", "PUT"])
+@require_user
+def guild_settings_by_query_param():
+    """Compatibility endpoint for guild command settings via query string."""
+    guild_id_str, guild_id, error = _parse_guild_id_query_param()
+    if error is not None:
+        payload, status_code = error
+        return jsonify(payload), status_code
+
+    assert guild_id is not None and guild_id_str is not None
+
+    if request.method == "GET":
+        settings = get_command_settings(guild_id)
+        debug_kv(
+            logger,
+            "Guild command settings fetched",
+            guild_id=guild_id_str,
+            field_count=len(settings) if isinstance(settings, dict) else 0,
+        )
+        return jsonify(settings if isinstance(settings, dict) else {})
+
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"detail": "JSON body must be an object"}), 400
+
+    _ensure_guild_exists(guild_id)
+    update_command_settings(guild_id, payload)
+    debug_kv(
+        logger,
+        "Guild command settings updated",
+        guild_id=guild_id_str,
+        field_count=len(payload),
+    )
+    return jsonify(payload)
+
+
+@guilds_bp.route("/api/guilds/settings/automod", methods=["GET", "PUT"])
+@require_user
+def automod_settings_by_query_param():
+    """Compatibility endpoint for automod settings nested in command settings."""
+    guild_id_str, guild_id, error = _parse_guild_id_query_param()
+    if error is not None:
+        payload, status_code = error
+        return jsonify(payload), status_code
+
+    assert guild_id is not None and guild_id_str is not None
+
+    settings = get_command_settings(guild_id)
+    if not isinstance(settings, dict):
+        settings = {}
+
+    if request.method == "GET":
+        automod_settings = settings.get("automod_settings")
+        if not isinstance(automod_settings, dict):
+            automod_settings = settings.get("automod")
+        if not isinstance(automod_settings, dict):
+            automod_settings = {}
+
+        debug_kv(
+            logger,
+            "Guild automod settings fetched",
+            guild_id=guild_id_str,
+            field_count=len(automod_settings),
+        )
+        return jsonify(automod_settings)
+
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"detail": "JSON body must be an object"}), 400
+
+    _ensure_guild_exists(guild_id)
+    settings["automod_settings"] = payload
+    update_command_settings(guild_id, settings)
+    debug_kv(
+        logger,
+        "Guild automod settings updated",
+        guild_id=guild_id_str,
+        field_count=len(payload),
+    )
+    return jsonify(payload)
+
+
+@guilds_bp.route("/api/guilds/automod-settings", methods=["GET", "PUT"])
+@require_user
+def automod_settings_legacy_path():
+    """Legacy path alias for automod settings compatibility."""
+    return automod_settings_by_query_param()
 
 
 @guilds_bp.get("/api/guilds/<guild_id>/rules")

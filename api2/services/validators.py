@@ -11,6 +11,30 @@ REQUIRED_RULE_FIELDS = {"name", "pattern", "action"}
 logger = get_logger("services.validators")
 
 
+def _parse_optional_string_list(payload: dict, *keys: str) -> list[str]:
+    for key in keys:
+        if key not in payload:
+            continue
+
+        raw_value = payload.get(key)
+        if raw_value is None:
+            return []
+
+        if isinstance(raw_value, str):
+            return [raw_value.strip()] if raw_value.strip() else []
+
+        if isinstance(raw_value, list):
+            if not all(isinstance(item, str) for item in raw_value):
+                debug_kv(logger, "Invalid list field received", field=key, value=raw_value)
+                raise ValidationError(f"{key} must be a list of strings")
+            return [item.strip() for item in raw_value if item.strip()]
+
+        debug_kv(logger, "Invalid list field type received", field=key, value=raw_value)
+        raise ValidationError(f"{key} must be a list of strings")
+
+    return []
+
+
 def parse_rule_payload(payload: dict) -> dict:
     """Validate and normalize a rule payload from JSON body."""
     debug_kv(logger, "Parsing rule payload", fields=list(payload.keys()))
@@ -43,6 +67,28 @@ def parse_rule_payload(payload: dict) -> dict:
         debug_kv(logger, "Invalid keywords type received", keywords=keywords_value)
         raise ValidationError("keywords must be a list of strings")
 
+    exempt_role_ids = _parse_optional_string_list(
+        payload,
+        "exempt_role_ids",
+        "exempt_roles",
+        "exemptRoleIds",
+        "ignored_role_ids",
+    )
+    exempt_channel_ids = _parse_optional_string_list(
+        payload,
+        "exempt_channel_ids",
+        "exempt_channels",
+        "exemptChannelIds",
+        "ignored_channel_ids",
+    )
+    exempt_user_ids = _parse_optional_string_list(
+        payload,
+        "exempt_user_ids",
+        "exempt_users",
+        "exemptUserIds",
+        "ignored_user_ids",
+    )
+
     return {
         "name": str(payload["name"]),
         "pattern": str(payload["pattern"]),
@@ -50,4 +96,7 @@ def parse_rule_payload(payload: dict) -> dict:
         "keywords": keywords,
         "threshold": threshold,
         "enabled": enabled,
+        "exempt_role_ids": exempt_role_ids,
+        "exempt_channel_ids": exempt_channel_ids,
+        "exempt_user_ids": exempt_user_ids,
     }

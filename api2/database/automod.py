@@ -72,6 +72,16 @@ def update_rule_by_id(rule_id: str, updates: Dict) -> Optional[Dict]:
                 "automod_rules.$.action": updates.get("action"),
                 "automod_rules.$.threshold": updates.get("threshold"),
                 "automod_rules.$.enabled": updates.get("enabled"),
+                "automod_rules.$.exempt_role_ids": updates.get("exempt_role_ids", []),
+                "automod_rules.$.exempt_roles": updates.get("exempt_role_ids", []),
+                "automod_rules.$.exempt_channel_ids": updates.get(
+                    "exempt_channel_ids", []
+                ),
+                "automod_rules.$.exempt_channels": updates.get(
+                    "exempt_channel_ids", []
+                ),
+                "automod_rules.$.exempt_user_ids": updates.get("exempt_user_ids", []),
+                "automod_rules.$.exempt_users": updates.get("exempt_user_ids", []),
             }
         },
     )
