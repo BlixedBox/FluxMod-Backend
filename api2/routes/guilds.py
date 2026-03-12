@@ -7,6 +7,9 @@ from api2.database.guilds import (
     get_command_settings,
     get_guild,
     update_command_settings,
+    get_lhs_settings,
+    update_lhs_settings,
+    set_lhs_enabled,
 )
 from api2.debug import debug_kv, get_logger
 from api2.services.auth_helpers import require_user
@@ -346,3 +349,73 @@ def delete_rule_by_query_param(rule_id: str):
         guild_id=guild_id or None,
     )
     return jsonify({"detail": "rule not found"}), 404
+
+
+# LHS (AI Moderation) endpoints
+
+
+@guilds_bp.route("/api/guilds/lhs-settings", methods=["GET", "PUT"])
+@require_user
+def lhs_settings_by_query_param():
+    """Endpoint for LHS (AI Moderation) settings."""
+    guild_id_str, guild_id, error = _parse_guild_id_query_param()
+    if error is not None:
+        payload, status_code = error
+        return jsonify(payload), status_code
+
+    assert guild_id is not None and guild_id_str is not None
+
+    if request.method == "GET":
+        settings = get_lhs_settings(guild_id)
+        debug_kv(
+            logger,
+            "LHS settings fetched",
+            guild_id=guild_id_str,
+        )
+        return jsonify(settings)
+
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"detail": "JSON body must be an object"}), 400
+
+    _ensure_guild_exists(guild_id)
+    update_lhs_settings(guild_id, payload)
+    debug_kv(
+        logger,
+        "LHS settings updated",
+        guild_id=guild_id_str,
+        fields=list(payload.keys()),
+    )
+    return jsonify(payload)
+
+
+@guilds_bp.route("/api/guilds/lhs-enabled", methods=["GET", "PUT"])
+@require_user
+def lhs_enabled_endpoint():
+    """Enable/disable LHS for a guild."""
+    guild_id_str, guild_id, error = _parse_guild_id_query_param()
+    if error is not None:
+        payload, status_code = error
+        return jsonify(payload), status_code
+
+    assert guild_id is not None and guild_id_str is not None
+
+    if request.method == "GET":
+        settings = get_lhs_settings(guild_id)
+        return jsonify({"enabled": settings.get("enabled", False)})
+
+    payload = request.get_json(silent=True) or {}
+    enabled = payload.get("enabled")
+    
+    if enabled is None:
+        return jsonify({"detail": "enabled field is required"}), 400
+
+    _ensure_guild_exists(guild_id)
+    set_lhs_enabled(guild_id, bool(enabled))
+    debug_kv(
+        logger,
+        "LHS enabled state updated",
+        guild_id=guild_id_str,
+        enabled=bool(enabled),
+    )
+    return jsonify({"enabled": bool(enabled)})
