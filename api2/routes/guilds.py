@@ -18,6 +18,146 @@ guilds_bp = Blueprint("guilds", __name__)
 logger = get_logger("routes.guilds")
 data_wrapper = DataWrapper()
 
+_NON_SETTING_KEYS = {
+    "guild_id",
+    "guildId",
+    "command_settings",
+    "commandSettings",
+    "settings",
+    "data",
+}
+
+_STAFF_ROLE_KEYS = {
+    "staff_role_ids",
+    "staff_roles",
+    "staff_ping_role_ids",
+    "automod_ping_role_ids",
+    "antispam_staff_role_ids",
+    "anti_spam_staff_role_ids",
+    "antispam_staff_roles",
+    "anti_spam_staff_roles",
+    "antiraid_staff_role_ids",
+    "anti_raid_staff_role_ids",
+    "antiraid_staff_roles",
+    "anti_raid_staff_roles",
+    "antinuke_staff_role_ids",
+    "anti_nuke_staff_role_ids",
+    "antinuke_staff_roles",
+    "anti_nuke_staff_roles",
+}
+
+_SECTION_KEYS = {
+    "antispam",
+    "anti_spam",
+    "antiraid",
+    "anti_raid",
+    "antinuke",
+    "anti_nuke",
+}
+
+
+def _build_setting_patch(payload: dict) -> dict:
+    patch: dict = {}
+
+    nested = payload.get("command_settings") or payload.get("commandSettings")
+    if isinstance(nested, dict):
+        patch.update(nested)
+
+    for key, value in payload.items():
+        if key in _NON_SETTING_KEYS:
+            continue
+        patch[key] = value
+
+    return patch
+
+
+def _extract_automod_settings(settings: dict) -> dict:
+    extracted: dict = {}
+
+    nested = settings.get("automod_settings")
+    if isinstance(nested, dict):
+        extracted.update(nested)
+
+    legacy_nested = settings.get("automod")
+    if isinstance(legacy_nested, dict):
+        extracted.update(legacy_nested)
+
+    for key, value in settings.items():
+        if key in _NON_SETTING_KEYS:
+            continue
+        if key in {"automod_settings", "automod"}:
+            continue
+        if key not in extracted:
+            extracted[key] = value
+
+    return extracted
+
+
+def _merge_automod_settings(settings: dict, payload: dict) -> dict:
+    merged = _extract_automod_settings(settings)
+    merged.update(payload)
+
+    settings["automod_settings"] = dict(merged)
+    for key, value in merged.items():
+        if key in {"automod_settings", "automod"}:
+            continue
+        settings[key] = value
+
+    return settings
+
+
+def _normalize_role_ids(value: object) -> list[str]:
+    if value is None:
+        return []
+
+    raw_items: list[str] = []
+    if isinstance(value, list):
+        raw_items = [str(item).strip() for item in value]
+    elif isinstance(value, str):
+        raw_items = [part.strip() for part in value.split(",")]
+    else:
+        raw_items = [str(value).strip()]
+
+    cleaned: list[str] = []
+    for item in raw_items:
+        if not item:
+            continue
+        if item in cleaned:
+            continue
+        cleaned.append(item)
+        if len(cleaned) >= 5:
+            break
+
+    return cleaned
+
+
+def _sanitize_staff_role_fields(payload: dict) -> dict:
+    def _sanitize_nested_sections(container: dict) -> None:
+        for section_key in _SECTION_KEYS:
+            section = container.get(section_key)
+            if not isinstance(section, dict):
+                continue
+
+            for key in list(section.keys()):
+                if key in _STAFF_ROLE_KEYS or key == "staff_role_ids":
+                    section[key] = _normalize_role_ids(section.get(key))
+
+    for key in list(payload.keys()):
+        if key in _STAFF_ROLE_KEYS:
+            payload[key] = _normalize_role_ids(payload.get(key))
+
+    _sanitize_nested_sections(payload)
+
+    nested_automod = payload.get("automod_settings")
+    if isinstance(nested_automod, dict):
+        for key in list(nested_automod.keys()):
+            if key in _STAFF_ROLE_KEYS:
+                nested_automod[key] = _normalize_role_ids(nested_automod.get(key))
+
+        _sanitize_nested_sections(nested_automod)
+
+    return payload
+
 
 def _parse_guild_id_query_param() -> tuple[
     str | None, int | None, tuple[dict, int] | None
@@ -60,6 +200,12 @@ def guild_settings_by_query_param():
 
     if request.method == "GET":
         settings = get_command_settings(guild_id)
+        if isinstance(settings, dict):
+            # Flatten nested automod settings into top-level aliases for older clients.
+            flattened = _extract_automod_settings(settings)
+            for key, value in flattened.items():
+                settings.setdefault(key, value)
+
         debug_kv(
             logger,
             "Guild command settings fetched",
@@ -73,14 +219,26 @@ def guild_settings_by_query_param():
         return jsonify({"detail": "JSON body must be an object"}), 400
 
     _ensure_guild_exists(guild_id)
-    update_command_settings(guild_id, payload)
+    existing_settings = get_command_settings(guild_id)
+    if not isinstance(existing_settings, dict):
+        existing_settings = {}
+
+    patch = _build_setting_patch(payload)
+    patch = _sanitize_staff_role_fields(patch)
+    updated_settings = {**existing_settings, **patch}
+
+    nested_automod = patch.get("automod_settings")
+    if isinstance(nested_automod, dict):
+        updated_settings = _merge_automod_settings(updated_settings, nested_automod)
+
+    update_command_settings(guild_id, updated_settings)
     debug_kv(
         logger,
         "Guild command settings updated",
         guild_id=guild_id_str,
-        field_count=len(payload),
+        field_count=len(updated_settings),
     )
-    return jsonify(payload)
+    return jsonify(updated_settings)
 
 
 @guilds_bp.route("/api/guilds/settings/automod", methods=["GET", "PUT"])
@@ -99,11 +257,7 @@ def automod_settings_by_query_param():
         settings = {}
 
     if request.method == "GET":
-        automod_settings = settings.get("automod_settings")
-        if not isinstance(automod_settings, dict):
-            automod_settings = settings.get("automod")
-        if not isinstance(automod_settings, dict):
-            automod_settings = {}
+        automod_settings = _extract_automod_settings(settings)
 
         debug_kv(
             logger,
@@ -118,15 +272,17 @@ def automod_settings_by_query_param():
         return jsonify({"detail": "JSON body must be an object"}), 400
 
     _ensure_guild_exists(guild_id)
-    settings["automod_settings"] = payload
+    patch = _build_setting_patch(payload)
+    patch = _sanitize_staff_role_fields(patch)
+    settings = _merge_automod_settings(settings, patch)
     update_command_settings(guild_id, settings)
     debug_kv(
         logger,
         "Guild automod settings updated",
         guild_id=guild_id_str,
-        field_count=len(payload),
+        field_count=len(patch),
     )
-    return jsonify(payload)
+    return jsonify(settings.get("automod_settings", {}))
 
 
 @guilds_bp.route("/api/guilds/automod-settings", methods=["GET", "PUT"])
