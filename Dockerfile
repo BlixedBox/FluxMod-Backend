@@ -18,14 +18,9 @@ FROM python:3.12.10-slim AS runtime
 
 WORKDIR /app
 
-RUN groupadd --system --gid 999 nonroot \
- && useradd --system --gid 999 --uid 999 --create-home nonroot
-
-COPY --from=builder --chown=nonroot:nonroot /app /app
-
 ENV PATH="/app/.venv/bin:$PATH"
 
-USER nonroot
+COPY --from=builder /app /app
 
 EXPOSE 8000
 
