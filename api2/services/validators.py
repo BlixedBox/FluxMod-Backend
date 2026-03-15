@@ -11,6 +11,14 @@ REQUIRED_RULE_FIELDS = {"name", "action"}
 logger = get_logger("services.validators")
 
 
+def _pick_first_defined(source: dict, *keys: str) -> object:
+    for key in keys:
+        if key in source and source.get(key) is not None:
+            return source.get(key)
+
+    return None
+
+
 def _parse_positive_int(value: object, field_name: str, *, min_value: int = 1, max_value: int | None = None) -> int:
     parsed: int | None = None
 
@@ -148,6 +156,104 @@ def parse_rule_payload(payload: dict) -> dict:
         "allowedKeywords",
     )
 
+    escalation_payload = payload.get("escalation")
+    if not isinstance(escalation_payload, dict):
+        escalation_payload = {}
+
+    escalation_enabled_raw = _pick_first_defined(
+        payload,
+        "escalation_enabled",
+        "escalationEnabled",
+        "offense_escalation_enabled",
+        "offenseEscalationEnabled",
+    )
+    if escalation_enabled_raw is None:
+        escalation_enabled_raw = _pick_first_defined(
+            escalation_payload,
+            "enabled",
+            "is_enabled",
+            "isEnabled",
+        )
+    escalation_enabled = (
+        _parse_bool_like(escalation_enabled_raw, "escalation_enabled")
+        if escalation_enabled_raw is not None
+        else False
+    )
+
+    escalation_warn_threshold_raw = _pick_first_defined(
+        payload,
+        "escalation_warn_threshold",
+        "escalationWarnThreshold",
+        "offense_escalation_warn_threshold",
+        "offenseEscalationWarnThreshold",
+        "warn_threshold",
+        "warnThreshold",
+    )
+    if escalation_warn_threshold_raw is None:
+        escalation_warn_threshold_raw = _pick_first_defined(
+            escalation_payload,
+            "warn_threshold",
+            "warnThreshold",
+        )
+    escalation_warn_threshold = _parse_positive_int(
+        escalation_warn_threshold_raw if escalation_warn_threshold_raw is not None else 1,
+        "escalation_warn_threshold",
+        min_value=1,
+    )
+
+    escalation_action_raw = _pick_first_defined(
+        payload,
+        "escalation_action",
+        "escalationAction",
+        "offense_escalation_action",
+        "offenseEscalationAction",
+    )
+    if escalation_action_raw is None:
+        escalation_action_raw = _pick_first_defined(escalation_payload, "action")
+    escalation_action = str(escalation_action_raw if escalation_action_raw is not None else "timeout").strip()
+    if not escalation_action:
+        escalation_action = "timeout"
+
+    escalation_timeout_duration_raw = _pick_first_defined(
+        payload,
+        "escalation_timeout_duration",
+        "escalationTimeoutDuration",
+        "offense_escalation_timeout_duration",
+        "offenseEscalationTimeoutDuration",
+    )
+    if escalation_timeout_duration_raw is None:
+        escalation_timeout_duration_raw = _pick_first_defined(
+            escalation_payload,
+            "timeout_duration",
+            "timeoutDuration",
+        )
+    escalation_timeout_duration = _parse_positive_int(
+        escalation_timeout_duration_raw if escalation_timeout_duration_raw is not None else 10,
+        "escalation_timeout_duration",
+        min_value=1,
+    )
+
+    escalation_reset_minutes_raw = _pick_first_defined(
+        payload,
+        "escalation_reset_minutes",
+        "escalationResetMinutes",
+        "offense_escalation_reset_minutes",
+        "offenseEscalationResetMinutes",
+        "reset_minutes",
+        "resetMinutes",
+    )
+    if escalation_reset_minutes_raw is None:
+        escalation_reset_minutes_raw = _pick_first_defined(
+            escalation_payload,
+            "reset_minutes",
+            "resetMinutes",
+        )
+    escalation_reset_minutes = _parse_positive_int(
+        escalation_reset_minutes_raw if escalation_reset_minutes_raw is not None else 0,
+        "escalation_reset_minutes",
+        min_value=0,
+    )
+
     return {
         "name": str(payload["name"]),
         "pattern": pattern,
@@ -160,4 +266,18 @@ def parse_rule_payload(payload: dict) -> dict:
         "exempt_role_ids": exempt_role_ids,
         "exempt_channel_ids": exempt_channel_ids,
         "exempt_user_ids": exempt_user_ids,
+        "escalation_enabled": escalation_enabled,
+        "escalation_warn_threshold": escalation_warn_threshold,
+        "escalation_action": escalation_action,
+        "escalation_timeout_duration": escalation_timeout_duration,
+        "escalation_reset_minutes": escalation_reset_minutes,
+        "offense_escalation_enabled": escalation_enabled,
+        "offense_escalation_action": escalation_action,
+        "escalation": {
+            "enabled": escalation_enabled,
+            "warn_threshold": escalation_warn_threshold,
+            "action": escalation_action,
+            "timeout_duration": escalation_timeout_duration,
+            "reset_minutes": escalation_reset_minutes,
+        },
     }

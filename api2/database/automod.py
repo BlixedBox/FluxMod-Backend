@@ -104,6 +104,41 @@ def update_rule_by_id(rule_id: str, updates: Dict) -> Optional[Dict]:
                 ),
                 "automod_rules.$.exempt_user_ids": updates.get("exempt_user_ids", []),
                 "automod_rules.$.exempt_users": updates.get("exempt_user_ids", []),
+                "automod_rules.$.escalation_enabled": updates.get(
+                    "escalation_enabled", False
+                ),
+                "automod_rules.$.escalation_warn_threshold": updates.get(
+                    "escalation_warn_threshold", 1
+                ),
+                "automod_rules.$.escalation_action": updates.get(
+                    "escalation_action", "timeout"
+                ),
+                "automod_rules.$.escalation_timeout_duration": updates.get(
+                    "escalation_timeout_duration", 10
+                ),
+                "automod_rules.$.escalation_reset_minutes": updates.get(
+                    "escalation_reset_minutes", 0
+                ),
+                "automod_rules.$.offense_escalation_enabled": updates.get(
+                    "escalation_enabled", False
+                ),
+                "automod_rules.$.offense_escalation_action": updates.get(
+                    "escalation_action", "timeout"
+                ),
+                "automod_rules.$.escalation": updates.get(
+                    "escalation",
+                    {
+                        "enabled": updates.get("escalation_enabled", False),
+                        "warn_threshold": updates.get(
+                            "escalation_warn_threshold", 1
+                        ),
+                        "action": updates.get("escalation_action", "timeout"),
+                        "timeout_duration": updates.get(
+                            "escalation_timeout_duration", 10
+                        ),
+                        "reset_minutes": updates.get("escalation_reset_minutes", 0),
+                    },
+                ),
             }
         },
     )
