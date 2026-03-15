@@ -1,5 +1,5 @@
 from api2.database.mongo import MongoDB
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 db = MongoDB()
 guilds = db.collection("guild_settings")
